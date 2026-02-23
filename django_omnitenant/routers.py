@@ -25,7 +25,15 @@ class TenantRouter:
         return getattr(model, "tenant_managed", True)
 
     def _is_master_managed_model(self, model):
-        return getattr(model, "master_managed", False) is True and model._meta.app_label in get_custom_apps()
+        if model._meta.app_label not in get_custom_apps():
+            return True  # treat non-custom apps as tenant-managed by default
+        # Check AppConfig
+        app_config = apps.get_app_config(model._meta.app_label)
+        if hasattr(app_config, "master_managed"):
+            return getattr(app_config, "master_managed", False)
+
+        # Check Model
+        return getattr(model, "master_managed", False)
 
     def db_for_read(self, model, **hints):
         if self._is_master_managed_model(model):

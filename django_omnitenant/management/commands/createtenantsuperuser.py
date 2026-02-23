@@ -88,11 +88,14 @@ Related:
     - TenantContext: Manages tenant isolation
 """
 
-from django.contrib.auth.management.commands.createsuperuser import Command as CreateSuperuserCommand
+from django.contrib.auth.management.commands.createsuperuser import (
+    Command as CreateSuperuserCommand,
+)
 from django.core.management.base import CommandError
 
 from django_omnitenant.tenant_context import TenantContext
 from django_omnitenant.utils import get_tenant_model
+from django_omnitenant.models import BaseTenant
 
 
 class Command(CreateSuperuserCommand):
@@ -159,6 +162,7 @@ class Command(CreateSuperuserCommand):
         - User's queryset automatically filtered by TenantContext
         - Django admin will show only this tenant's objects
     """
+
     help = "Tenant-aware createsuperuser"
 
     def add_arguments(self, parser):
@@ -215,7 +219,7 @@ class Command(CreateSuperuserCommand):
             "--tenant-id",
             required=True,
             help="The tenant_id of the tenant where the superuser should be created. "
-                 "Must be an existing tenant. The created user will only exist in this tenant's database/schema."
+            "Must be an existing tenant. The created user will only exist in this tenant's database/schema.",
         )
 
     def handle(self, *args, **options):
@@ -398,10 +402,10 @@ class Command(CreateSuperuserCommand):
 
         # Get the tenant model (can be customized via settings)
         Tenant = get_tenant_model()
-        
+
         # Validate that tenant exists before attempting to create user
         try:
-            tenant = Tenant.objects.get(tenant_id=tenant_id)
+            tenant: BaseTenant = Tenant.objects.get(tenant_id=tenant_id)
         except Tenant.DoesNotExist:
             # Tenant not found - raise error immediately, don't proceed
             raise CommandError(
@@ -419,4 +423,7 @@ class Command(CreateSuperuserCommand):
             # Call parent's handle to perform Django's superuser creation
             # Parent handles: prompting for username/email/password, validation, user creation
             # All of this happens within the tenant context above
+            if tenant.isolation_type == BaseTenant.IsolationType.DATABASE:
+                db_config = tenant.config.get("db_config", {})
+                options["database"] = db_config.get("ALIAS", db_config.get("NAME"))
             super().handle(*args, **options)
