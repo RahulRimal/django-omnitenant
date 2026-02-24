@@ -221,7 +221,6 @@ class Command(BaseCommand):
             - migration_name requires app_label
             - Parser is modified in-place
         """
-        # Add positional arguments for app_label and migration_name
         parser.add_argument(
             "app_label",
             nargs="?",
@@ -434,6 +433,10 @@ class Command(BaseCommand):
         app_label = options.pop("app_label", None)
         migration_name = options.pop("migration_name", None)
 
+        reset_all = app_label == "zero" and migration_name is None
+        if reset_all:
+            app_label = None
+
         # Get the Tenant model class (can be customized via settings)
         Tenant = get_tenant_model()
 
@@ -448,6 +451,8 @@ class Command(BaseCommand):
                 if migration_name:
                     migration_target += f", migration: {migration_name}"
                 migration_target += ")"
+            elif reset_all:
+                migration_target = " (all apps: zero)"
 
             # Display which tenant we're about to migrate (good for monitoring output)
             self.stdout.write(self.style.MIGRATE_HEADING(f"Migrating tenant: {tenant.tenant_id}{migration_target}"))
@@ -459,7 +464,17 @@ class Command(BaseCommand):
 
                 # Execute migrations for this tenant in its isolated context
                 # Pass app_label and migration_name as positional args if provided
-                if app_label:
+                if reset_all:
+                    from django.apps import apps as django_apps
+
+                    for app_config in django_apps.get_app_configs():
+                        try:
+                            backend.migrate(app_config.label, "zero", **options)
+                        except Exception as app_error:
+                            if "does not have migrations" in str(app_error):
+                                continue
+                            raise
+                elif app_label:
                     if migration_name:
                         backend.migrate(app_label, migration_name, **options)
                     else:
@@ -473,4 +488,3 @@ class Command(BaseCommand):
                 # On failure, log error but continue to next tenant
                 # This ensures one tenant's error doesn't prevent others from migrating
                 self.stdout.write(self.style.ERROR(f"Migrations failed for tenant '{tenant.tenant_id}': {e}"))
-
